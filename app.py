@@ -13,6 +13,10 @@ BASE_URL = os.getenv("BASE_URL", "https://exams.keralauniversity.ac.in/Login/che
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = "KuNotify"
 COLLECTION_NAME = "KuNotifications"
+NOTIFY_KEYWORDS = os.getenv(
+    "NOTIFY_KEYWORDS", "btech,b.tech,bachelor of technology"
+).split(",")
+NOTIFY_YEAR = os.getenv("NOTIFY_YEAR", "2018")
 
 # Resend setup (store API key as env var)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
@@ -121,13 +125,9 @@ def check_for_new_and_notify(latest_rows):
     matches = [
         n
         for n in latest_rows
-        if ("2018" in n["exam_name"])
-        and (
-            "btech" in n["exam_name"].lower()
-            or "b.tech" in n["exam_name"].lower()
-            or "bachelor of technology" in n["exam_name"].lower()
-            or "technology" in n["exam_name"].lower()
-            or "tech" in n["exam_name"].lower()
+        if NOTIFY_YEAR in n["exam_name"]
+        and any(
+            keyword.lower() in n["exam_name"].lower() for keyword in NOTIFY_KEYWORDS
         )
     ]
 
