@@ -118,29 +118,144 @@ def check_for_new_and_notify(latest_rows):
             print("ℹ️ No new notifications (already stored).")
             return
 
-    # New batch OR new rows detected → update MongoDB
-    replace_latest_in_mongo(latest_rows)
+        # Check if it's a new batch with different publish date
+        if old_date != new_date:
+            print(
+                f"🗑️ New batch detected! Clearing old data (was: {old_date}, now: {new_date})"
+            )
+            # Clear MongoDB and treat all matching notifications as new
+            replace_latest_in_mongo(latest_rows)
+            new_matches = [
+                n
+                for n in latest_rows
+                if NOTIFY_YEAR in n["exam_name"]
+                and any(
+                    keyword.lower() in n["exam_name"].lower()
+                    for keyword in NOTIFY_KEYWORDS
+                )
+            ]
+        else:
+            # Same date but different notifications - find only NEW ones
+            new_matches = []
+            for n in latest_rows:
+                # Check if this notification is new (not in old_rows)
+                is_new = not any(
+                    old_n["exam_name"] == n["exam_name"]
+                    and old_n["published_date"] == n["published_date"]
+                    for old_n in old_rows
+                )
 
-    # Filter matching notifications
-    matches = [
-        n
-        for n in latest_rows
-        if NOTIFY_YEAR in n["exam_name"]
-        and any(
-            keyword.lower() in n["exam_name"].lower() for keyword in NOTIFY_KEYWORDS
-        )
-    ]
+                # Check if it matches our criteria AND is new
+                if (
+                    is_new
+                    and NOTIFY_YEAR in n["exam_name"]
+                    and any(
+                        keyword.lower() in n["exam_name"].lower()
+                        for keyword in NOTIFY_KEYWORDS
+                    )
+                ):
+                    new_matches.append(n)
 
-    if matches:
-        subject = "🚨 New B.Tech 2018 Scheme Notification!"
-        body = "<h3>Latest Notifications:</h3><ul>"
-        for m in matches:
-            body += f"<li>{m['published_date']} - {m['exam_name']}<br><a href='{m['pdf_link']}'>PDF Link</a></li>"
-        body += "</ul>"
+            # Update MongoDB with latest data (includes new + existing)
+            replace_latest_in_mongo(latest_rows)
+
+    else:
+        # No old data exists, so all matching notifications are "new"
+        print("📊 First run - storing initial data")
+        replace_latest_in_mongo(latest_rows)
+        new_matches = [
+            n
+            for n in latest_rows
+            if NOTIFY_YEAR in n["exam_name"]
+            and any(
+                keyword.lower() in n["exam_name"].lower() for keyword in NOTIFY_KEYWORDS
+            )
+        ]
+
+    # Send email only if there are NEW matching notifications
+    if new_matches:
+        subject = "Kerala University - New Examination Notifications Available"
+
+        # Professional HTML email template
+        body = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #f4f4f4; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .header {{ background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .header h1 {{ margin: 0; font-size: 24px; font-weight: 600; }}
+                .header p {{ margin: 10px 0 0 0; opacity: 0.9; }}
+                .content {{ padding: 30px; }}
+                .notification-count {{ background: #eff6ff; border: 1px solid #dbeafe; border-radius: 6px; padding: 15px; margin-bottom: 25px; }}
+                .notification-count strong {{ color: #1e40af; }}
+                .notification-item {{ background: #f8fafc; border-left: 4px solid #3b82f6; margin: 15px 0; padding: 20px; border-radius: 0 6px 6px 0; }}
+                .notification-title {{ font-weight: 600; color: #1e40af; margin-bottom: 8px; font-size: 16px; }}
+                .notification-date {{ color: #64748b; font-size: 14px; margin-bottom: 12px; }}
+                .pdf-link {{ display: inline-block; background: #3b82f6; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 14px; margin-top: 8px; }}
+                .pdf-link:hover {{ background: #2563eb; }}
+                .footer {{ background: #f8fafc; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #e2e8f0; }}
+                .footer p {{ margin: 0; color: #64748b; font-size: 14px; }}
+                .disclaimer {{ background: #fef3cd; border: 1px solid #fde68a; border-radius: 6px; padding: 15px; margin-top: 20px; font-size: 14px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Kerala University</h1>
+                    <p>Examination Notification Alert</p>
+                </div>
+                
+                <div class="content">
+                    <div class="notification-count">
+                        <strong>{len(new_matches)} New Notification{"s" if len(new_matches) > 1 else ""} Available</strong>
+                    </div>
+                    
+                    <p>Dear Student,</p>
+                    <p>We're pleased to inform you that new examination notifications matching your criteria have been published on the Kerala University portal.</p>
+        """
+
+        # Add each notification
+        for m in new_matches:
+            body += f"""
+                    <div class="notification-item">
+                        <div class="notification-title">{m["exam_name"]}</div>
+                        <div class="notification-date">📅 Published: {m["published_date"]}</div>
+                        <a href="{m["pdf_link"]}" class="pdf-link">📄 View PDF Document</a>
+                    </div>
+            """
+
+        body += f"""
+                    <div class="disclaimer">
+                        <strong>📌 Important:</strong> Please verify all details from the official Kerala University website. This is an automated notification system.
+                    </div>
+                    
+                    <p style="margin-top: 25px;">
+                        <strong>Next Steps:</strong><br>
+                        • Review the notification documents carefully<br>
+                        • Note important dates and deadlines<br>
+                        • Contact the university for any clarifications
+                    </p>
+                </div>
+                
+                <div class="footer">
+                    <p>This is an automated notification from KU Notify System</p>
+                    <p>Kerala University Official Portal: <a href="https://exams.keralauniversity.ac.in/" style="color: #3b82f6;">exams.keralauniversity.ac.in</a></p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
 
         send_email(subject, body)
+        print(
+            f"✅ Notification email sent for {len(new_matches)} new matching notification(s)."
+        )
     else:
-        print("ℹ️ No B.Tech 2018 Scheme notifications in latest batch.")
+        print("ℹ️ No new matching notifications to send email for.")
 
 
 if __name__ == "__main__":
